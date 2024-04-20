@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+# Check domain argument in command line
+if [ $# -ne 1 ]; then
+    echo "Used: $0 <domain_name>"
+    exit 1
+fi
+
+domain=$1
+email="your_email@email.com"
+
+# Testing or working script which works after nginx installation
+download_checker() {
+    mkdir -p /var/www/$domain
+    mkdir -p /var/www/$domain/logs/
+    cd /var/www/$domain
+    wget http://yoursite/side.zip
+    unzip side.zip
+    rm -rf side.zip
+    chmod -R 755 /var/www/$domain
+    chown -R nginx:nginx /var/www/
+    cd /root
+}
+
+# Install the nginx config that redirects to the checker script. php-fpm should already be configured.
+add_nginx_checker_config() {
+    cd /etc/nginx/conf.d/
+    rm -f /etc/nginx/conf.d/$domain\.conf
+    touch /etc/nginx/conf.d/$domain\.conf
+
+    echo "server {
+    # server for php script
+    listen 80;
+    listen [::]:80;
+
+    root \$root_path;
+    set \$root_path /var/www/$domain/side/;
+    set \$php_sock 127.0.0.1:9000;
+    index index.php index.html index.htm;
+
+    server_name $domain;
+
+    access_log /var/www/$domain/logs/access.log;
+    error_log /var/www/$domain/logs/error.log;
+
+    location / {
+        proxy_pass https://$domain/script.php;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass \$php_sock;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+} " > /etc/nginx/conf.d/$domain\.conf
+
+    systemctl stop nginx
+}
+
+# Config SSL 
+nginx_ssl_configuration () {
+    systemctl stop nginx
+    yum -y install certbot-nginx
+
+    certbot --nginx -d $domain --email $email --agree-tos -n --pre-hook "" --post-hook ""
+
+    # certbot turns on the nginx service incorrectly, so kill the service and start it classically:
+    pkill nginx
+    systemctl start nginx
+}
+
+download_checker
+
+add_nginx_checker_config
+
+nginx_ssl_configuration
